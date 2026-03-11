@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional, Dict, Any
 from models import TimelineEvent, TimelineEventCreate, TimelineEventType, ProblemType
 from utils import db, get_current_user, generate_id, create_history_entry
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 router = APIRouter()
 
@@ -224,3 +224,233 @@ async def delete_timeline_event(
         raise HTTPException(status_code=404, detail="Evento não encontrado")
     
     return {"message": "Evento eliminado"}
+
+
+# ==================== TIMELINE COMPLETA (TODOS OS EVENTOS) ====================
+
+@router.get("/{project_id}/complete")
+async def get_complete_timeline(
+    project_id: str,
+    filtro_tipo: Optional[str] = Query(None, description="Filtrar por tipo: timeline, history, checkpoint, stage"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Obtém timeline COMPLETA do projeto incluindo:
+    - Eventos manuais da timeline (pausas, problemas, notas)
+    - Histórico de alterações (mudanças de campos)
+    - Respostas de checkpoints
+    - Mudanças de etapa
+    """
+    project = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    
+    # Carregar dados de referência
+    users = await db.users.find({}, {"_id": 0, "id": 1, "nome": 1, "email": 1}).to_list(100)
+    users_map = {u["id"]: u for u in users}
+    
+    stages = await db.stages.find({}, {"_id": 0, "id": 1, "nome": 1, "cor_identificacao": 1}).to_list(50)
+    stages_map = {s["id"]: s for s in stages}
+    
+    checkpoints = await db.checkpoints.find({}, {"_id": 0}).to_list(200)
+    checkpoints_map = {c["id"]: c for c in checkpoints}
+    
+    all_events = []
+    
+    # 1. EVENTOS DA TIMELINE (pausas, problemas, notas, etc)
+    if not filtro_tipo or filtro_tipo == "timeline":
+        timeline_events = await db.timeline_events.find(
+            {"projeto_id": project_id},
+            {"_id": 0}
+        ).to_list(500)
+        
+        for event in timeline_events:
+            user = users_map.get(event.get("criado_por"), {})
+            event_type_info = next((e for e in EVENT_TYPES if e["value"] == event.get("tipo_evento")), None)
+            problem_type_info = next((p for p in PROBLEM_TYPES if p["value"] == event.get("tipo_problema")), None)
+            
+            all_events.append({
+                "id": event["id"],
+                "source": "timeline",
+                "tipo": event.get("tipo_evento"),
+                "tipo_label": event_type_info["label"] if event_type_info else event.get("tipo_evento"),
+                "tipo_cor": event_type_info["color"] if event_type_info else "#64748B",
+                "tipo_icon": event_type_info["icon"] if event_type_info else "message",
+                "subtipo": event.get("tipo_problema"),
+                "subtipo_label": problem_type_info["label"] if problem_type_info else None,
+                "descricao": event.get("descricao"),
+                "impacto_dias": event.get("impacto_dias", 0),
+                "resolvido": event.get("resolvido", False),
+                "data": event.get("data_evento"),
+                "autor_id": event.get("criado_por"),
+                "autor_nome": user.get("nome", "Sistema"),
+                "autor_email": user.get("email"),
+                "etapa_key": event.get("etapa_key"),
+                "importancia": "alta" if event.get("tipo_evento") in ["problema", "pausa", "conclusao"] else "normal"
+            })
+    
+    # 2. HISTÓRICO DE ALTERAÇÕES
+    if not filtro_tipo or filtro_tipo == "history":
+        history_entries = await db.history.find(
+            {"entidade": "project", "entidade_id": project_id},
+            {"_id": 0}
+        ).to_list(500)
+        
+        # Labels amigáveis para campos
+        field_labels = {
+            "status_projeto": "Estado do Projeto",
+            "etapa_atual_id": "Etapa Atual",
+            "progresso_percentagem": "Progresso",
+            "data_prevista_entrega": "Data Prevista Entrega",
+            "data_entrada_confecao": "Data Entrada Confecção",
+            "parceiro_confeccao_id": "Parceiro Confecção",
+            "quantidade": "Quantidade",
+            "modelo": "Modelo",
+            "timeline": "Timeline",
+            "anexo_adicionado": "Anexo Adicionado",
+            "anexo_eliminado": "Anexo Eliminado"
+        }
+        
+        for entry in history_entries:
+            user = users_map.get(entry.get("alterado_por"), {})
+            campo = entry.get("campo", "")
+            
+            # Traduzir valores de etapa
+            valor_anterior = entry.get("valor_anterior")
+            valor_novo = entry.get("valor_novo")
+            
+            if campo == "etapa_atual_id":
+                if valor_anterior and valor_anterior in stages_map:
+                    valor_anterior = stages_map[valor_anterior]["nome"]
+                if valor_novo and valor_novo in stages_map:
+                    valor_novo = stages_map[valor_novo]["nome"]
+            
+            # Determinar importância
+            importancia = "normal"
+            if campo in ["status_projeto", "etapa_atual_id"]:
+                importancia = "alta"
+            elif campo == "timeline":
+                importancia = "media"
+            
+            all_events.append({
+                "id": entry["id"],
+                "source": "history",
+                "tipo": "alteracao",
+                "tipo_label": field_labels.get(campo, campo.replace("_", " ").title()),
+                "tipo_cor": "#6366F1",  # Indigo
+                "tipo_icon": "edit",
+                "campo": campo,
+                "valor_anterior": valor_anterior,
+                "valor_novo": valor_novo,
+                "descricao": f"{field_labels.get(campo, campo)}: {valor_anterior or '(vazio)'} → {valor_novo or '(vazio)'}",
+                "data": entry.get("data"),
+                "autor_id": entry.get("alterado_por"),
+                "autor_nome": user.get("nome", "Sistema"),
+                "autor_email": user.get("email"),
+                "importancia": importancia
+            })
+    
+    # 3. RESPOSTAS DE CHECKPOINTS
+    if not filtro_tipo or filtro_tipo == "checkpoint":
+        checkpoint_responses = await db.checkpoint_responses.find(
+            {"projeto_id": project_id},
+            {"_id": 0}
+        ).to_list(500)
+        
+        for response in checkpoint_responses:
+            checkpoint = checkpoints_map.get(response.get("checkpoint_id"), {})
+            user = users_map.get(response.get("respondido_por"), {})
+            stage = stages_map.get(checkpoint.get("etapa_id"), {})
+            
+            # Formatar valor conforme tipo
+            valor = response.get("valor")
+            tipo_resposta = checkpoint.get("tipo_resposta", "texto")
+            if tipo_resposta == "checkbox":
+                valor_formatado = "Sim" if valor == "true" or valor is True else "Não"
+            elif tipo_resposta == "data":
+                valor_formatado = valor[:10] if valor else "-"
+            else:
+                valor_formatado = str(valor) if valor else "-"
+            
+            all_events.append({
+                "id": response["id"],
+                "source": "checkpoint",
+                "tipo": "checkpoint",
+                "tipo_label": "Checkpoint",
+                "tipo_cor": "#10B981",  # Emerald
+                "tipo_icon": "check-square",
+                "checkpoint_nome": checkpoint.get("nome", "Checkpoint"),
+                "checkpoint_tipo": tipo_resposta,
+                "etapa_nome": stage.get("nome", ""),
+                "etapa_cor": stage.get("cor_identificacao"),
+                "valor": valor_formatado,
+                "descricao": f"{checkpoint.get('nome', 'Checkpoint')}: {valor_formatado}",
+                "data": response.get("data_resposta"),
+                "autor_id": response.get("respondido_por"),
+                "autor_nome": user.get("nome", "Sistema"),
+                "autor_email": user.get("email"),
+                "importancia": "normal"
+            })
+    
+    # 4. EVENTO DE CRIAÇÃO DO PROJETO
+    if not filtro_tipo or filtro_tipo == "history":
+        criador = users_map.get(project.get("criado_por"), {})
+        all_events.append({
+            "id": f"created-{project_id}",
+            "source": "system",
+            "tipo": "criacao",
+            "tipo_label": "Projeto Criado",
+            "tipo_cor": "#22C55E",  # Green
+            "tipo_icon": "plus-circle",
+            "descricao": f"Projeto {project.get('of_numero')} criado",
+            "data": project.get("criado_em"),
+            "autor_id": project.get("criado_por"),
+            "autor_nome": criador.get("nome", "Sistema"),
+            "autor_email": criador.get("email"),
+            "importancia": "alta"
+        })
+    
+    # Ordenar por data (mais recente primeiro)
+    all_events.sort(key=lambda x: x.get("data") or "", reverse=True)
+    
+    # Agrupar por data
+    grouped_by_date = {}
+    for event in all_events:
+        event_date = event.get("data", "")[:10] if event.get("data") else "Sem data"
+        if event_date not in grouped_by_date:
+            grouped_by_date[event_date] = []
+        grouped_by_date[event_date].append(event)
+    
+    # Estatísticas
+    stats = {
+        "total_eventos": len(all_events),
+        "por_fonte": {
+            "timeline": len([e for e in all_events if e["source"] == "timeline"]),
+            "history": len([e for e in all_events if e["source"] == "history"]),
+            "checkpoint": len([e for e in all_events if e["source"] == "checkpoint"]),
+            "system": len([e for e in all_events if e["source"] == "system"])
+        },
+        "problemas_ativos": len([e for e in all_events if e.get("tipo") == "problema" and not e.get("resolvido")]),
+        "checkpoints_respondidos": len([e for e in all_events if e["source"] == "checkpoint"]),
+        "total_alteracoes": len([e for e in all_events if e["source"] == "history"]),
+        "ultima_atividade": all_events[0].get("data") if all_events else None,
+        "autores_unicos": len(set(e.get("autor_id") for e in all_events if e.get("autor_id")))
+    }
+    
+    # Info do projeto
+    projeto_info = {
+        "id": project.get("id"),
+        "of_numero": project.get("of_numero"),
+        "modelo": project.get("modelo"),
+        "status": project.get("status_projeto"),
+        "progresso": project.get("progresso_percentagem", 0),
+        "data_criacao": project.get("criado_em"),
+        "data_entrega": project.get("data_prevista_entrega")
+    }
+    
+    return {
+        "projeto": projeto_info,
+        "eventos": all_events,
+        "eventos_por_data": grouped_by_date,
+        "estatisticas": stats
+    }

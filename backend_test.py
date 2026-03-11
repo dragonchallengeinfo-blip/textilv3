@@ -3,13 +3,14 @@ import sys
 import json
 from datetime import datetime
 
-class CustomListingsAPITester:
-    def __init__(self, base_url="https://setup-ready-boost.preview.emergentagent.com"):
+class TimelineAPITester:
+    def __init__(self, base_url="https://error-fix-55.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
         self.tests_run = 0
         self.tests_passed = 0
-        self.created_view_ids = []
+        self.test_project_id = None
+        self.test_event_id = None
 
     def run_test(self, name, method, endpoint, expected_status, data=None, headers=None):
         """Run a single API test"""

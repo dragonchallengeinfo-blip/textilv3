@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
 import { api } from '@/utils/api';
@@ -7,7 +7,8 @@ import {
   ArrowLeft, Edit, Clock, CheckSquare, Package, Paperclip, History as HistoryIcon,
   Calendar, Save, Calculator, Play, Pause, AlertTriangle, CheckCircle2, MessageSquare,
   Flag, Plus, X, RefreshCw, Upload, FileText, Trash2, Download, Circle, ArrowRight,
-  Euro, Timer, Settings, Check, Info, ArrowRightLeft
+  Euro, Timer, Settings, Check, Info, ArrowRightLeft, User, Filter, ChevronDown, 
+  ChevronRight, Activity, PlusCircle, Pencil, Eye
 } from 'lucide-react';
 import { formatDate, formatDateTime, getStatusColor, getStatusLabel } from '@/utils/helpers';
 
@@ -78,6 +79,12 @@ const ProjectDetail = () => {
   const [pieceCostFinal, setPieceCostFinal] = useState({ tempo: '', custo: '' });
   const [savingPieceCost, setSavingPieceCost] = useState(false);
   const [showPieceCostConfig, setShowPieceCostConfig] = useState(false);
+
+  // Complete Timeline state
+  const [completeTimeline, setCompleteTimeline] = useState(null);
+  const [timelineFilter, setTimelineFilter] = useState('all');
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [expandedDates, setExpandedDates] = useState({});
 
   useEffect(() => {
     fetchProjectData();
@@ -171,6 +178,38 @@ const ProjectDetail = () => {
     }
   };
 
+  // Fetch complete timeline
+  const fetchCompleteTimeline = useCallback(async (filtro = null) => {
+    setTimelineLoading(true);
+    try {
+      const url = filtro && filtro !== 'all' 
+        ? `/timeline/${id}/complete?filtro_tipo=${filtro}`
+        : `/timeline/${id}/complete`;
+      const response = await api.get(url);
+      setCompleteTimeline(response.data);
+      
+      // Auto-expand hoje e ontem
+      const today = new Date().toISOString().split('T')[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      setExpandedDates(prev => ({
+        ...prev,
+        [today]: true,
+        [yesterday]: true
+      }));
+    } catch (error) {
+      console.error('Failed to fetch complete timeline:', error);
+    } finally {
+      setTimelineLoading(false);
+    }
+  }, [id]);
+
+  // Carregar timeline quando muda para a tab
+  useEffect(() => {
+    if (activeTab === 'timeline' && !completeTimeline) {
+      fetchCompleteTimeline();
+    }
+  }, [activeTab, completeTimeline, fetchCompleteTimeline]);
+
   // Planning functions
   const calculateDates = async () => {
     if (!dataEntrega) {
@@ -259,6 +298,9 @@ const ProjectDetail = () => {
       
       const response = await api.get(`/timeline/${id}`);
       setTimelineData(response.data);
+      
+      // Atualizar timeline completa
+      fetchCompleteTimeline(timelineFilter);
     } catch (error) {
       console.error('Failed to add event:', error);
       toast.error('Erro ao adicionar evento');
@@ -272,6 +314,9 @@ const ProjectDetail = () => {
       
       const response = await api.get(`/timeline/${id}`);
       setTimelineData(response.data);
+      
+      // Atualizar timeline completa
+      fetchCompleteTimeline(timelineFilter);
     } catch (error) {
       console.error('Failed to resolve problem:', error);
       toast.error('Erro ao resolver problema');
@@ -1449,7 +1494,7 @@ const ProjectDetail = () => {
                       setNewEvent({ tipo_evento: 'pausa', tipo_problema: null, descricao: '', impacto_dias: 0 });
                       setShowAddEvent(true);
                     }}
-                    className="p-3 text-sm bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 transition-colors flex items-center justify-center"
+                    className="p-3 text-sm bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 transition-colors flex items-center justify-center border border-yellow-200"
                   >
                     <Pause className="w-4 h-4 mr-2" />
                     Pausar
@@ -1460,7 +1505,7 @@ const ProjectDetail = () => {
                       setNewEvent({ tipo_evento: 'retoma', tipo_problema: null, descricao: '', impacto_dias: 0 });
                       setShowAddEvent(true);
                     }}
-                    className="p-3 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors flex items-center justify-center"
+                    className="p-3 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors flex items-center justify-center border border-green-200"
                   >
                     <Play className="w-4 h-4 mr-2" />
                     Retomar
@@ -1471,7 +1516,7 @@ const ProjectDetail = () => {
                       setNewEvent({ tipo_evento: 'problema', tipo_problema: 'outro', descricao: '', impacto_dias: 0 });
                       setShowAddEvent(true);
                     }}
-                    className="p-3 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors flex items-center justify-center"
+                    className="p-3 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors flex items-center justify-center border border-red-200"
                   >
                     <AlertTriangle className="w-4 h-4 mr-2" />
                     Problema
@@ -1482,47 +1527,93 @@ const ProjectDetail = () => {
                       setNewEvent({ tipo_evento: 'nota', tipo_problema: null, descricao: '', impacto_dias: 0 });
                       setShowAddEvent(true);
                     }}
-                    className="p-3 text-sm bg-slate-50 text-slate-700 rounded-lg hover:bg-slate-100 transition-colors flex items-center justify-center"
+                    className="p-3 text-sm bg-slate-50 text-slate-700 rounded-lg hover:bg-slate-100 transition-colors flex items-center justify-center border border-slate-200"
                   >
                     <MessageSquare className="w-4 h-4 mr-2" />
                     Nota
                   </button>
                 </div>
 
-                {/* Active Problems */}
-                {timelineData?.summary?.problems_list?.length > 0 && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <h4 className="font-medium text-red-800 mb-3 flex items-center">
-                      <AlertTriangle className="w-4 h-4 mr-2" />
-                      Problemas Ativos ({timelineData.summary.active_problems})
-                    </h4>
-                    <div className="space-y-2">
-                      {timelineData.summary.problems_list.map(problem => (
-                        <div key={problem.id} className="flex items-start justify-between p-3 bg-white rounded-lg border border-red-100">
-                          <div className="flex-1">
-                            <p className="text-sm text-slate-900">{problem.descricao || 'Sem descrição'}</p>
-                            <p className="text-xs text-slate-500 mt-1">
-                              {problemTypes.find(p => p.value === problem.tipo_problema)?.label || problem.tipo_problema}
-                              {problem.impacto_dias > 0 && ` • Impacto: +${problem.impacto_dias} dias`}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => resolveProblema(problem.id)}
-                            className="ml-2 p-2 text-green-600 hover:bg-green-50 rounded-lg"
-                            title="Marcar como resolvido"
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
+                {/* Estatísticas da Timeline */}
+                {completeTimeline?.estatisticas && (
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl p-4">
+                      <div className="flex items-center justify-between">
+                        <Activity className="w-5 h-5 text-blue-600" />
+                        <span className="text-2xl font-bold text-blue-700">{completeTimeline.estatisticas.total_eventos}</span>
+                      </div>
+                      <p className="text-xs text-blue-600 mt-1">Total de Eventos</p>
                     </div>
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-xl p-4">
+                      <div className="flex items-center justify-between">
+                        <Pencil className="w-5 h-5 text-purple-600" />
+                        <span className="text-2xl font-bold text-purple-700">{completeTimeline.estatisticas.total_alteracoes}</span>
+                      </div>
+                      <p className="text-xs text-purple-600 mt-1">Alterações</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 rounded-xl p-4">
+                      <div className="flex items-center justify-between">
+                        <CheckSquare className="w-5 h-5 text-emerald-600" />
+                        <span className="text-2xl font-bold text-emerald-700">{completeTimeline.estatisticas.checkpoints_respondidos}</span>
+                      </div>
+                      <p className="text-xs text-emerald-600 mt-1">Checkpoints</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 rounded-xl p-4">
+                      <div className="flex items-center justify-between">
+                        <User className="w-5 h-5 text-amber-600" />
+                        <span className="text-2xl font-bold text-amber-700">{completeTimeline.estatisticas.autores_unicos}</span>
+                      </div>
+                      <p className="text-xs text-amber-600 mt-1">Participantes</p>
+                    </div>
+                    {completeTimeline.estatisticas.problemas_ativos > 0 && (
+                      <div className="bg-gradient-to-br from-red-50 to-red-100 border border-red-200 rounded-xl p-4">
+                        <div className="flex items-center justify-between">
+                          <AlertTriangle className="w-5 h-5 text-red-600" />
+                          <span className="text-2xl font-bold text-red-700">{completeTimeline.estatisticas.problemas_ativos}</span>
+                        </div>
+                        <p className="text-xs text-red-600 mt-1">Problemas Ativos</p>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Events Timeline */}
-                <div>
-                  <div className="flex justify-between items-center mb-4">
-                    <h4 className="font-medium text-slate-900">Histórico de Eventos</h4>
+                {/* Filtros e Header */}
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Filter className="w-4 h-4 text-slate-500" />
+                    <span className="text-sm font-medium text-slate-700">Filtrar por:</span>
+                    {[
+                      { value: 'all', label: 'Todos', icon: Activity },
+                      { value: 'timeline', label: 'Eventos', icon: Flag },
+                      { value: 'history', label: 'Alterações', icon: Pencil },
+                      { value: 'checkpoint', label: 'Checkpoints', icon: CheckSquare }
+                    ].map(filter => (
+                      <button
+                        key={filter.value}
+                        onClick={() => {
+                          setTimelineFilter(filter.value);
+                          fetchCompleteTimeline(filter.value);
+                        }}
+                        className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          timelineFilter === filter.value
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                        }`}
+                      >
+                        <filter.icon className="w-3.5 h-3.5 mr-1.5" />
+                        {filter.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => fetchCompleteTimeline(timelineFilter)}
+                      disabled={timelineLoading}
+                      className="inline-flex items-center px-3 py-1.5 text-slate-600 hover:bg-white rounded-lg text-sm border border-slate-200"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-1 ${timelineLoading ? 'animate-spin' : ''}`} />
+                      Atualizar
+                    </button>
                     <button
                       data-testid="add-event-btn"
                       onClick={() => setShowAddEvent(true)}
@@ -1532,63 +1623,249 @@ const ProjectDetail = () => {
                       Evento
                     </button>
                   </div>
-                  
-                  {timelineData?.events?.length === 0 ? (
-                    <div className="text-center text-slate-400 py-8 bg-slate-50 rounded-lg">
+                </div>
+
+                {/* Active Problems Alert */}
+                {completeTimeline?.estatisticas?.problemas_ativos > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                    <h4 className="font-medium text-red-800 mb-3 flex items-center">
+                      <AlertTriangle className="w-4 h-4 mr-2" />
+                      Problemas Ativos ({completeTimeline.estatisticas.problemas_ativos})
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {completeTimeline.eventos
+                        .filter(e => e.tipo === 'problema' && !e.resolvido)
+                        .map(problem => (
+                          <div key={problem.id} className="flex items-start justify-between p-3 bg-white rounded-lg border border-red-100">
+                            <div className="flex-1">
+                              <p className="text-sm text-slate-900">{problem.descricao || 'Sem descrição'}</p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                {problem.subtipo_label || problem.subtipo}
+                                {problem.impacto_dias > 0 && ` • Impacto: +${problem.impacto_dias} dias`}
+                              </p>
+                              <p className="text-xs text-slate-400 mt-1">por {problem.autor_nome}</p>
+                            </div>
+                            <button
+                              onClick={() => resolveProblema(problem.id)}
+                              className="ml-2 p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                              title="Marcar como resolvido"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Timeline Completa Agrupada por Data */}
+                <div className="space-y-4">
+                  {timelineLoading ? (
+                    <div className="text-center text-slate-400 py-12 bg-slate-50 rounded-xl">
+                      <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin" />
+                      A carregar timeline...
+                    </div>
+                  ) : !completeTimeline?.eventos?.length ? (
+                    <div className="text-center text-slate-400 py-12 bg-slate-50 rounded-xl">
+                      <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
                       Nenhum evento registado
                     </div>
                   ) : (
-                    <div className="relative">
-                      <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-200" />
+                    Object.entries(completeTimeline.eventos_por_data || {}).map(([date, events]) => {
+                      const isExpanded = expandedDates[date] !== false;
+                      const isToday = date === new Date().toISOString().split('T')[0];
+                      const isYesterday = date === new Date(Date.now() - 86400000).toISOString().split('T')[0];
                       
-                      <div className="space-y-4">
-                        {timelineData?.events?.map((event) => {
-                          const EventIcon = getEventIcon(event.tipo_evento);
-                          const color = getEventColor(event.tipo_evento);
-                          const eventType = eventTypes.find(e => e.value === event.tipo_evento);
-                          
-                          return (
-                            <div key={event.id} className="relative flex items-start ml-4 pl-6">
-                              <div 
-                                className="absolute -left-4 w-8 h-8 rounded-full flex items-center justify-center"
-                                style={{ backgroundColor: color }}
-                              >
-                                <EventIcon className="w-4 h-4 text-white" />
-                              </div>
-                              
-                              <div className="flex-1 bg-slate-50 rounded-lg p-4">
-                                <div className="flex justify-between items-start">
-                                  <div>
-                                    <span className="text-sm font-medium" style={{ color }}>
-                                      {eventType?.label || event.tipo_evento}
-                                    </span>
-                                    {event.tipo_problema && (
-                                      <span className="text-xs text-slate-500 ml-2">
-                                        ({problemTypes.find(p => p.value === event.tipo_problema)?.label || event.tipo_problema})
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-xs text-slate-400">{formatDateTime(event.data_evento)}</span>
-                                </div>
-                                
-                                {event.descricao && (
-                                  <p className="text-sm text-slate-600 mt-2">{event.descricao}</p>
-                                )}
-                                
-                                {event.impacto_dias > 0 && (
-                                  <p className="text-xs text-red-600 mt-1 flex items-center">
-                                    <Clock className="w-3 h-3 mr-1" />
-                                    Impacto: +{event.impacto_dias} dias
-                                  </p>
-                                )}
-                                
-                                <p className="text-xs text-slate-400 mt-2">por {event.criado_por_nome}</p>
-                              </div>
+                      // Formatar data de forma amigável
+                      const formatDateLabel = (dateStr) => {
+                        if (dateStr === 'Sem data') return dateStr;
+                        if (isToday) return 'Hoje';
+                        if (isYesterday) return 'Ontem';
+                        const d = new Date(dateStr);
+                        const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+                        return d.toLocaleDateString('pt-PT', options);
+                      };
+                      
+                      return (
+                        <div key={date} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                          {/* Date Header */}
+                          <button
+                            onClick={() => setExpandedDates(prev => ({ ...prev, [date]: !isExpanded }))}
+                            className={`w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors ${
+                              isToday ? 'bg-blue-50 border-b border-blue-100' : 
+                              isYesterday ? 'bg-slate-50 border-b border-slate-100' : 'border-b border-slate-100'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              {isExpanded ? (
+                                <ChevronDown className="w-4 h-4 text-slate-400" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4 text-slate-400" />
+                              )}
+                              <Calendar className={`w-4 h-4 ${isToday ? 'text-blue-600' : 'text-slate-400'}`} />
+                              <span className={`font-medium capitalize ${isToday ? 'text-blue-700' : 'text-slate-800'}`}>
+                                {formatDateLabel(date)}
+                              </span>
+                              {isToday && (
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                                  Hoje
+                                </span>
+                              )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                            <span className="text-sm text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                              {events.length} {events.length === 1 ? 'evento' : 'eventos'}
+                            </span>
+                          </button>
+                          
+                          {/* Events */}
+                          {isExpanded && (
+                            <div className="divide-y divide-slate-100">
+                              {events.map((event, idx) => {
+                                // Ícones por tipo
+                                const getIcon = () => {
+                                  const iconMap = {
+                                    'inicio': Play,
+                                    'pausa': Pause,
+                                    'retoma': Play,
+                                    'problema': AlertTriangle,
+                                    'problema_resolvido': CheckCircle2,
+                                    'mudanca_etapa': ArrowRight,
+                                    'conclusao': Flag,
+                                    'nota': MessageSquare,
+                                    'alteracao': Pencil,
+                                    'checkpoint': CheckSquare,
+                                    'criacao': PlusCircle
+                                  };
+                                  return iconMap[event.tipo] || Activity;
+                                };
+                                const EventIcon = getIcon();
+                                
+                                return (
+                                  <div 
+                                    key={event.id} 
+                                    className={`px-4 py-4 hover:bg-slate-50/50 transition-colors ${
+                                      event.importancia === 'alta' ? 'bg-amber-50/30' : ''
+                                    }`}
+                                  >
+                                    <div className="flex items-start gap-4">
+                                      {/* Icon */}
+                                      <div 
+                                        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
+                                        style={{ backgroundColor: event.tipo_cor || '#64748B' }}
+                                      >
+                                        <EventIcon className="w-5 h-5 text-white" />
+                                      </div>
+                                      
+                                      {/* Content */}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span 
+                                                className="font-semibold text-sm"
+                                                style={{ color: event.tipo_cor || '#334155' }}
+                                              >
+                                                {event.tipo_label}
+                                              </span>
+                                              {event.subtipo_label && (
+                                                <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                                  {event.subtipo_label}
+                                                </span>
+                                              )}
+                                              {event.etapa_nome && (
+                                                <span 
+                                                  className="text-xs px-2 py-0.5 rounded-full text-white"
+                                                  style={{ backgroundColor: event.etapa_cor || '#6366F1' }}
+                                                >
+                                                  {event.etapa_nome}
+                                                </span>
+                                              )}
+                                              {event.source === 'checkpoint' && (
+                                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                                                  Checkpoint
+                                                </span>
+                                              )}
+                                              {event.importancia === 'alta' && (
+                                                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                                                  Importante
+                                                </span>
+                                              )}
+                                            </div>
+                                            
+                                            {/* Description */}
+                                            {event.descricao && (
+                                              <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">
+                                                {event.descricao}
+                                              </p>
+                                            )}
+                                            
+                                            {/* Checkpoint value */}
+                                            {event.source === 'checkpoint' && event.valor && (
+                                              <div className="mt-2 flex items-center gap-2">
+                                                <span className="text-xs text-slate-500">{event.checkpoint_nome}:</span>
+                                                <span className="text-sm font-medium text-slate-800 bg-slate-100 px-2 py-0.5 rounded">
+                                                  {event.valor}
+                                                </span>
+                                              </div>
+                                            )}
+                                            
+                                            {/* History change details */}
+                                            {event.source === 'history' && event.valor_anterior && event.valor_novo && (
+                                              <div className="mt-2 flex items-center gap-2 text-sm">
+                                                <span className="text-slate-400 line-through">{event.valor_anterior}</span>
+                                                <ArrowRight className="w-3 h-3 text-slate-400" />
+                                                <span className="text-slate-700 font-medium">{event.valor_novo}</span>
+                                              </div>
+                                            )}
+                                            
+                                            {/* Impact days */}
+                                            {event.impacto_dias > 0 && (
+                                              <p className="text-xs text-red-600 mt-2 flex items-center">
+                                                <Clock className="w-3 h-3 mr-1" />
+                                                Impacto: +{event.impacto_dias} dias
+                                              </p>
+                                            )}
+                                          </div>
+                                          
+                                          {/* Timestamp */}
+                                          <span className="text-xs text-slate-400 whitespace-nowrap">
+                                            {event.data ? new Date(event.data).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : ''}
+                                          </span>
+                                        </div>
+                                        
+                                        {/* Author info */}
+                                        <div className="mt-3 flex items-center gap-2">
+                                          <div className="w-6 h-6 bg-slate-200 rounded-full flex items-center justify-center">
+                                            <User className="w-3.5 h-3.5 text-slate-500" />
+                                          </div>
+                                          <span className="text-xs text-slate-500">
+                                            <span className="font-medium text-slate-700">{event.autor_nome}</span>
+                                            {event.autor_email && (
+                                              <span className="text-slate-400 ml-1">({event.autor_email})</span>
+                                            )}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Actions for problems */}
+                                      {event.tipo === 'problema' && !event.resolvido && (
+                                        <button
+                                          onClick={() => resolveProblema(event.id)}
+                                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg flex-shrink-0"
+                                          title="Marcar como resolvido"
+                                        >
+                                          <CheckCircle2 className="w-5 h-5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>
