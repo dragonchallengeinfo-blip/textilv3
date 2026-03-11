@@ -175,13 +175,18 @@ class PartnerBase(BaseModel):
     email: Optional[str] = None
     telefone: Optional[str] = None
     morada: Optional[str] = None
-    # Capacity fields
+    # Capacity fields for confeccao
     num_trabalhadores: Optional[int] = None
     capacidade_pecas_mes: Optional[int] = None
     capacidade_projetos_mes: Optional[int] = None
     taxa_ocupacao: Optional[float] = None  # % of capacity dedicated to this user
     eficiencia: Optional[float] = None  # % efficiency rating
     taxa_qualidade: Optional[float] = None
+    capacidade_horas_mes: Optional[int] = None  # Calculated available hours
+    # Simplified profile fields for lavandaria, acabamento, etc
+    tempo_processamento_medio: Optional[float] = None  # Average processing time in hours
+    capacidade_pecas_dia: Optional[int] = None  # Pieces per day capacity
+    prazo_entrega_padrao: Optional[int] = None  # Standard delivery time in days
     ativo: bool = True
 
 class PartnerCreate(PartnerBase):
@@ -200,6 +205,10 @@ class PartnerUpdate(BaseModel):
     taxa_ocupacao: Optional[float] = None
     eficiencia: Optional[float] = None
     taxa_qualidade: Optional[float] = None
+    capacidade_horas_mes: Optional[int] = None
+    tempo_processamento_medio: Optional[float] = None
+    capacidade_pecas_dia: Optional[int] = None
+    prazo_entrega_padrao: Optional[int] = None
     ativo: Optional[bool] = None
 
 class Partner(PartnerBase):
