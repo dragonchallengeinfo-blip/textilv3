@@ -812,6 +812,9 @@ const ConfeccaoPlanning = () => {
                       {dashboardData.confeccoes.map(conf => {
                         const ocupado = 100 - conf.disponibilidade_atual;
                         const disponivel = conf.disponibilidade_atual;
+                        const taxaOcupacao = conf.taxa_ocupacao || 100;
+                        const capacidadeTotal = conf.capacidade_total_mes || conf.capacidade_hora_mes;
+                        const capacidadeDisponivel = conf.capacidade_disponivel_mes || conf.capacidade_hora_mes;
                         
                         return (
                           <div key={conf.id} className="bg-slate-50 rounded-lg p-4">
@@ -820,6 +823,19 @@ const ConfeccaoPlanning = () => {
                               <div className="flex items-center space-x-2">
                                 <div className="flex">{getQualidadeStars(conf.taxa_qualidade)}</div>
                                 <span className="text-xs text-slate-500">{conf.num_trabalhadores} trab.</span>
+                              </div>
+                            </div>
+                            
+                            {/* Capacidade info */}
+                            <div className="flex justify-between text-xs text-slate-500 mb-2 bg-white rounded p-2">
+                              <div>
+                                <span className="text-slate-400">Total:</span>
+                                <span className="ml-1 text-slate-600">{capacidadeTotal}h</span>
+                              </div>
+                              <div>
+                                <span className="text-emerald-500 font-medium">Disp.:</span>
+                                <span className="ml-1 text-emerald-600 font-medium">{capacidadeDisponivel}h</span>
+                                <span className="text-slate-400 ml-1">({taxaOcupacao}%)</span>
                               </div>
                             </div>
                             
@@ -1044,7 +1060,12 @@ const ConfeccaoPlanning = () => {
                               
                               <div className="text-sm">
                                 <div className="text-slate-500">
-                                  Capacidade mes: <span className="text-slate-700 font-medium">{sim.capacidade.capacidade_hora_mes}h</span>
+                                  Cap. Total: <span className="text-slate-400">{sim.capacidade.capacidade_total_mes}h</span>
+                                  <span className="mx-2">|</span>
+                                  <span className="text-emerald-600 font-medium">
+                                    Disponível: {sim.capacidade.capacidade_disponivel_mes || sim.capacidade.capacidade_hora_mes}h
+                                  </span>
+                                  <span className="text-slate-400 ml-1">({sim.capacidade.taxa_ocupacao || 100}%)</span>
                                 </div>
                                 <div className="flex space-x-4 mt-1">
                                   <span>Em curso: <span className="text-yellow-600 font-medium">{sim.capacidade.horas_em_curso}h</span></span>

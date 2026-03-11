@@ -341,7 +341,13 @@ async def get_confeccao_planning_dashboard(
         # Capacidade em horas (8h/dia * dias_uteis * trabalhadores * eficiência)
         num_trabalhadores = conf.get("num_trabalhadores") or 10
         eficiencia = (conf.get("eficiencia") or 80) / 100
-        capacidade_hora_mes = num_trabalhadores * 8 * 22 * eficiencia  # 22 dias úteis
+        taxa_ocupacao = (conf.get("taxa_ocupacao") or 100) / 100  # Nova: taxa de ocupação
+        
+        # Capacidade TOTAL mensal (sem taxa ocupação)
+        capacidade_total_mes = num_trabalhadores * 8 * 22 * eficiencia  # 22 dias úteis
+        
+        # Capacidade DISPONÍVEL (com taxa ocupação aplicada)
+        capacidade_disponivel_mes = capacidade_total_mes * taxa_ocupacao
         
         # Horas em curso (assumindo tempo médio por peça)
         tempo_peca_h = conf.get("tempo_medio_peca") or 1.2  # horas por peça
@@ -350,13 +356,14 @@ async def get_confeccao_planning_dashboard(
         # Horas aprovadas (projetos não iniciados)
         horas_aprovadas = sum(t.get("quantidade", 0) * tempo_peca_h for t in trabalhos if t.get("status_projeto") in ["rascunho", "bloqueado"])
         
-        # Disponibilidade
+        # Disponibilidade (calculada sobre capacidade DISPONÍVEL, não total)
         total_ocupado = horas_em_curso + horas_aprovadas
-        disponibilidade_atual = max(0, ((capacidade_hora_mes - horas_em_curso) / capacidade_hora_mes * 100)) if capacidade_hora_mes > 0 else 0
-        disponibilidade_depois = max(-100, ((capacidade_hora_mes - total_ocupado) / capacidade_hora_mes * 100)) if capacidade_hora_mes > 0 else 0
+        disponibilidade_atual = max(0, ((capacidade_disponivel_mes - horas_em_curso) / capacidade_disponivel_mes * 100)) if capacidade_disponivel_mes > 0 else 0
+        disponibilidade_depois = max(-100, ((capacidade_disponivel_mes - total_ocupado) / capacidade_disponivel_mes * 100)) if capacidade_disponivel_mes > 0 else 0
         
         # Calcular tempo estimado para trabalhos
-        tempo_dias = (horas_em_curso / (num_trabalhadores * 8)) if num_trabalhadores > 0 else 0
+        horas_disponiveis_dia = num_trabalhadores * 8 * eficiencia * taxa_ocupacao
+        tempo_dias = (horas_em_curso / horas_disponiveis_dia) if horas_disponiveis_dia > 0 else 0
         
         confeccao_data.append({
             "id": conf["id"],
@@ -364,13 +371,17 @@ async def get_confeccao_planning_dashboard(
             "codigo": conf.get("codigo"),
             "num_trabalhadores": num_trabalhadores,
             "eficiencia": conf.get("eficiencia", 80),
-            "capacidade_hora_mes": round(capacidade_hora_mes, 0),
+            "taxa_ocupacao": conf.get("taxa_ocupacao", 100),
+            "capacidade_total_mes": round(capacidade_total_mes, 0),
+            "capacidade_hora_mes": round(capacidade_disponivel_mes, 0),  # Capacidade disponível para compatibilidade
+            "capacidade_disponivel_mes": round(capacidade_disponivel_mes, 0),
             "horas_em_curso": round(horas_em_curso, 0),
             "horas_aprovadas": round(horas_aprovadas, 0),
             "disponibilidade_atual": round(disponibilidade_atual, 1),
             "disponibilidade_depois": round(disponibilidade_depois, 1),
             "tempo_dias": round(tempo_dias, 1),
             "trabalhos_ativos": len([t for t in trabalhos if t.get("status_projeto") == "ativo"]),
+            "taxa_qualidade": conf.get("taxa_qualidade"),
             "trabalhos": [
                 {
                     "id": t["id"],
@@ -461,24 +472,26 @@ async def simulate_trabalho_allocation(
         
         num_trabalhadores = conf.get("num_trabalhadores") or 10
         efic_conf = (conf.get("eficiencia") or 80) / 100
+        taxa_ocupacao = (conf.get("taxa_ocupacao") or 100) / 100  # Nova: taxa ocupação
         tempo_peca_conf = conf.get("tempo_medio_peca") or 1.2
         
-        # Capacidade mensal em horas
-        capacidade_hora_mes = num_trabalhadores * 8 * 22 * efic_conf
+        # Capacidade total e disponível mensal em horas
+        capacidade_total_mes = num_trabalhadores * 8 * 22 * efic_conf
+        capacidade_disponivel_mes = capacidade_total_mes * taxa_ocupacao
         
         # Horas atualmente em uso
         horas_em_curso = sum(t.get("quantidade", 0) * tempo_peca_conf for t in trabalhos if t.get("status_projeto") == "ativo")
         horas_aprovadas = sum(t.get("quantidade", 0) * tempo_peca_conf for t in trabalhos if t.get("status_projeto") in ["rascunho", "bloqueado"])
         
-        # Disponibilidade atual
-        disponibilidade_atual = ((capacidade_hora_mes - horas_em_curso) / capacidade_hora_mes * 100) if capacidade_hora_mes > 0 else 0
+        # Disponibilidade atual (baseada em capacidade DISPONÍVEL)
+        disponibilidade_atual = ((capacidade_disponivel_mes - horas_em_curso) / capacidade_disponivel_mes * 100) if capacidade_disponivel_mes > 0 else 0
         
         # Disponibilidade DEPOIS de adicionar o novo trabalho
         nova_carga = horas_em_curso + horas_totais
-        disponibilidade_depois = ((capacidade_hora_mes - nova_carga) / capacidade_hora_mes * 100) if capacidade_hora_mes > 0 else 0
+        disponibilidade_depois = ((capacidade_disponivel_mes - nova_carga) / capacidade_disponivel_mes * 100) if capacidade_disponivel_mes > 0 else 0
         
         # Tempo estimado para completar o novo trabalho
-        horas_diarias = num_trabalhadores * 8 * efic_conf
+        horas_diarias = num_trabalhadores * 8 * efic_conf * taxa_ocupacao  # Com taxa ocupação
         tempo_dias = (horas_totais / horas_diarias) if horas_diarias > 0 else 0
         
         # Pode aceitar o trabalho?
@@ -488,12 +501,17 @@ async def simulate_trabalho_allocation(
             "confeccao": {
                 "id": conf["id"],
                 "nome": conf["nome"],
-                "codigo": conf.get("codigo")
+                "codigo": conf.get("codigo"),
+                "taxa_qualidade": conf.get("taxa_qualidade"),
+                "taxa_ocupacao": conf.get("taxa_ocupacao", 100)
             },
             "capacidade": {
                 "num_trabalhadores": num_trabalhadores,
                 "eficiencia": conf.get("eficiencia", 80),
-                "capacidade_hora_mes": round(capacidade_hora_mes, 0),
+                "taxa_ocupacao": conf.get("taxa_ocupacao", 100),
+                "capacidade_total_mes": round(capacidade_total_mes, 0),
+                "capacidade_hora_mes": round(capacidade_disponivel_mes, 0),  # Capacidade disponível
+                "capacidade_disponivel_mes": round(capacidade_disponivel_mes, 0),
                 "horas_em_curso": round(horas_em_curso, 0),
                 "horas_aprovadas": round(horas_aprovadas, 0)
             },
